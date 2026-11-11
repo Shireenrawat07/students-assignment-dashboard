@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowDownWideNarrow, ClipboardList, FileCheck2, Pencil, Plus, Trash2, Users } from 'lucide-react'
+import { ArrowDownWideNarrow, BookOpen, ClipboardList, FileCheck2, Pencil, Plus, Trash2, Users } from 'lucide-react'
 import { useApp } from '../context/AppContext.jsx'
 import AssignmentCard from '../components/AssignmentCard.jsx'
 import AssignmentModal from '../components/AssignmentModal.jsx'
@@ -10,14 +10,15 @@ import FilterBar from '../components/FilterBar.jsx'
 import Navbar from '../components/Navbar.jsx'
 import SearchBar from '../components/SearchBar.jsx'
 import StatCard from '../components/StatCard.jsx'
-import { demoUsers } from '../data/seedData.js'
+import {
+  GENERAL_COURSE_ID,
+} from '../utils/courseRules.js'
 import {
   getAdminAssignmentProgress,
   getAssignmentsForAdmin,
   matchesAdminAssignmentFilter,
 } from '../utils/assignmentRules.js'
 
-const students = demoUsers.filter((user) => user.role === 'student')
 const filters = [
   { value: 'all', label: 'All' },
   { value: 'pending', label: 'Pending' },
@@ -37,8 +38,13 @@ function createEmptyForm() {
     description: '',
     dueDate: '',
     driveLink: '',
+    courseId: GENERAL_COURSE_ID,
     assignedStudentIds: [],
   }
+}
+
+function createEmptyCourseForm() {
+  return { name: '', code: '', description: '' }
 }
 
 function formatDueDate(dateString) {
@@ -51,7 +57,25 @@ function formatDueDate(dateString) {
 }
 
 function AdminDashboard({ theme, onToggleTheme }) {
-  const { currentUser, logout, assignments, updates, storageError, createAssignment, updateAssignment, deleteAssignment } = useApp()
+  const {
+    currentUser,
+    users,
+    courses,
+    logout,
+    assignments,
+    updates,
+    storageError,
+    createAssignment,
+    updateAssignment,
+    deleteAssignment,
+    createCourse,
+    updateCourse,
+    deleteCourse,
+  } = useApp()
+  const students = users.filter((user) => user.role === 'student')
+  const professorCourses = courses.filter((course) =>
+    course.id === GENERAL_COURSE_ID || course.creatorId === currentUser.id,
+  )
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
@@ -63,6 +87,12 @@ function AdminDashboard({ theme, onToggleTheme }) {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleteError, setDeleteError] = useState('')
   const [notice, setNotice] = useState('')
+  const [isCourseFormOpen, setIsCourseFormOpen] = useState(false)
+  const [editingCourse, setEditingCourse] = useState(null)
+  const [courseForm, setCourseForm] = useState(createEmptyCourseForm)
+  const [courseFormError, setCourseFormError] = useState('')
+  const [courseDeleteTarget, setCourseDeleteTarget] = useState(null)
+  const [courseDeleteError, setCourseDeleteError] = useState('')
   const today = getToday()
 
   const adminAssignments = useMemo(
@@ -70,9 +100,10 @@ function AdminDashboard({ theme, onToggleTheme }) {
       getAssignmentsForAdmin(assignments, currentUser)
         .map((assignment) => ({
           ...assignment,
+          courseName: courses.find((course) => course.id === assignment.courseId)?.name ?? 'General course',
           ...getAdminAssignmentProgress(assignment, updates, today),
         })),
-    [assignments, currentUser, today, updates],
+    [assignments, courses, currentUser, today, updates],
   )
 
   const assignedStudentCount = new Set(
@@ -100,6 +131,13 @@ function AdminDashboard({ theme, onToggleTheme }) {
       )
   }, [adminAssignments, filter, search, sortOrder])
 
+  const visibleAssignmentsByCourse = professorCourses
+    .map((course) => ({
+      course,
+      assignments: visibleAssignments.filter((assignment) => assignment.courseId === course.id),
+    }))
+    .filter((group) => group.assignments.length > 0)
+
   function handleLogout() {
     logout()
     navigate('/', { replace: true })
@@ -125,6 +163,7 @@ function AdminDashboard({ theme, onToggleTheme }) {
       description: assignment.description,
       dueDate: assignment.dueDate,
       driveLink: assignment.driveLink,
+      courseId: assignment.courseId ?? GENERAL_COURSE_ID,
       assignedStudentIds: [...assignment.assignedStudentIds],
     })
     setFormError('')
@@ -161,6 +200,9 @@ function AdminDashboard({ theme, onToggleTheme }) {
     if (form.assignedStudentIds.length === 0) {
       return 'Select at least one student.'
     }
+    if (!professorCourses.some((course) => course.id === form.courseId)) {
+      return 'Choose an available course for this assignment.'
+    }
     if (form.dueDate < today) {
       return 'Choose a due date that is today or later.'
     }
@@ -191,6 +233,7 @@ function AdminDashboard({ theme, onToggleTheme }) {
       description: form.description.trim(),
       dueDate: form.dueDate,
       driveLink: form.driveLink.trim(),
+      courseId: form.courseId,
       assignedStudentIds: form.assignedStudentIds,
     }
     const result = editingAssignment
@@ -215,6 +258,55 @@ function AdminDashboard({ theme, onToggleTheme }) {
     setDeleteTarget(null)
     setDeleteError('')
     setNotice('Assignment deleted.')
+  }
+
+  function openCreateCourseForm() {
+    setEditingCourse(null)
+    setCourseForm(createEmptyCourseForm())
+    setCourseFormError('')
+    setIsCourseFormOpen(true)
+  }
+
+  function openEditCourseForm(course) {
+    setEditingCourse(course)
+    setCourseForm({ name: course.name, code: course.code, description: course.description })
+    setCourseFormError('')
+    setIsCourseFormOpen(true)
+  }
+
+  function closeCourseForm() {
+    setIsCourseFormOpen(false)
+    setEditingCourse(null)
+    setCourseFormError('')
+  }
+
+  function handleCourseSave(event) {
+    event.preventDefault()
+    const result = editingCourse
+      ? updateCourse(editingCourse.id, courseForm)
+      : createCourse(courseForm)
+    if (!result.success) {
+      setCourseFormError(result.error)
+      return
+    }
+
+    closeCourseForm()
+    setNotice(editingCourse ? 'Course updated.' : 'Course created.')
+  }
+
+  function confirmDeleteCourse() {
+    const result = deleteCourse(courseDeleteTarget.id)
+    if (!result.success) {
+      setCourseDeleteError(result.error)
+      return
+    }
+    setCourseDeleteTarget(null)
+    setCourseDeleteError('')
+    setNotice(
+      result.reassignedCount
+        ? `Course deleted. ${result.reassignedCount} assignment(s) moved to General course.`
+        : 'Course deleted.',
+    )
   }
 
   return (
@@ -265,6 +357,81 @@ function AdminDashboard({ theme, onToggleTheme }) {
           <StatCard icon={<Users />} label="Students assigned" value={assignedStudentCount} detail="Unique students" />
           <StatCard icon={<FileCheck2 />} label="Submitted" value={submittedCount} detail={`of ${assignedCount} assigned submissions`} />
           <StatCard icon={<ArrowDownWideNarrow />} label="Pending" value={pendingCount} detail={`${overallCompletion}% class completion`} />
+        </section>
+
+        <section className="glass-surface mt-5 rounded-2xl p-5 sm:p-6" aria-labelledby="courses-heading">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-slate-900" id="courses-heading">Course management</h2>
+              <p className="mt-1 text-sm text-slate-600">Organize assignments into your courses.</p>
+            </div>
+            <button
+              className="inline-flex min-h-10 items-center justify-center gap-2 self-start rounded-xl bg-cyan-700 px-4 text-sm font-semibold text-white transition-colors hover:bg-cyan-800 sm:self-auto"
+              type="button"
+              onClick={openCreateCourseForm}
+            >
+              <Plus aria-hidden="true" size={17} />
+              Create course
+            </button>
+          </div>
+          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {professorCourses.map((course) => {
+              const assignmentCount = adminAssignments.filter((assignment) => assignment.courseId === course.id).length
+              const isDefaultCourse = course.id === GENERAL_COURSE_ID
+              return (
+                <article className="rounded-xl border border-sky-100 bg-white/55 p-4" key={course.id}>
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-cyan-50 text-cyan-800">
+                      <BookOpen aria-hidden="true" size={19} />
+                    </span>
+                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                      {course.code}
+                    </span>
+                  </div>
+                  <h3 className="mt-3 font-semibold text-slate-900">{course.name}</h3>
+                  <p className="mt-1 min-h-10 text-sm leading-5 text-slate-600">
+                    {course.description || 'No course description.'}
+                  </p>
+                  <p className="mt-3 text-xs text-slate-500">
+                    {assignmentCount} {assignmentCount === 1 ? 'assignment' : 'assignments'}
+                    {isDefaultCourse ? ' · Default course for existing work' : ''}
+                  </p>
+                  {isDefaultCourse ? (
+                    <p className="mt-3 text-xs text-slate-500">This course keeps existing assignments available.</p>
+                  ) : (
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-sky-100 bg-white/75 px-3 text-sm font-medium text-slate-700 transition-colors hover:bg-cyan-50"
+                        type="button"
+                        onClick={() => openEditCourseForm(course)}
+                        aria-label={`Edit ${course.name}`}
+                      >
+                        <Pencil aria-hidden="true" size={14} />
+                        Edit
+                      </button>
+                      <button
+                        className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-rose-100 bg-white/75 px-3 text-sm font-medium text-rose-700 transition-colors hover:bg-rose-50"
+                        type="button"
+                        onClick={() => {
+                          setCourseDeleteTarget(course)
+                          setCourseDeleteError('')
+                        }}
+                        aria-label={`Delete ${course.name}`}
+                      >
+                        <Trash2 aria-hidden="true" size={14} />
+                        Delete
+                      </button>
+                    </div>
+                  )}
+                </article>
+              )
+            })}
+          </div>
+          {professorCourses.length === 1 && (
+            <p className="mt-3 rounded-xl border border-dashed border-sky-200 px-4 py-3 text-sm text-slate-600" role="status">
+              No courses created yet. Create a course to organize new assignments; existing work stays in General course.
+            </p>
+          )}
         </section>
 
         <section className="glass-surface mt-5 rounded-2xl p-5 sm:p-6" aria-label="Overall class progress">
@@ -352,7 +519,16 @@ function AdminDashboard({ theme, onToggleTheme }) {
                 description="Try a different title or completion filter."
               />
             ) : (
-              visibleAssignments.map((assignment) => {
+              visibleAssignmentsByCourse.map(({ course, assignments: courseAssignments }) => (
+                <section key={course.id} aria-labelledby={`course-${course.id}-assignments`}>
+                  <div className="mb-3 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                    <h3 className="text-base font-semibold text-slate-800" id={`course-${course.id}-assignments`}>
+                      {course.name}
+                    </h3>
+                    <span className="text-xs font-medium text-slate-500">{course.code}</span>
+                  </div>
+                  <div className="space-y-4">
+                    {courseAssignments.map((assignment) => {
                 const status = assignment.isOverdue
                   ? 'Overdue'
                   : assignment.completionState === 'unassigned'
@@ -378,6 +554,7 @@ function AdminDashboard({ theme, onToggleTheme }) {
                       <div className="min-w-0 flex-1">
                         <AssignmentCard
                           title={assignment.title}
+                          subject={assignment.courseName}
                           description={assignment.description}
                           dueDate={`Due ${formatDueDate(assignment.dueDate)}`}
                           status={status}
@@ -470,12 +647,86 @@ function AdminDashboard({ theme, onToggleTheme }) {
                       </ul>
                     </section>
                   </article>
-                )
-              })
+                    )
+                  })}
+                </div>
+              </section>
+              ))
             )}
           </div>
         </section>
       </main>
+
+      <AssignmentModal
+        open={isCourseFormOpen}
+        title={editingCourse ? 'Edit course' : 'Create course'}
+        description="Add the course details used to organize assignments."
+        onClose={closeCourseForm}
+        actions={
+          <>
+            <button
+              className="min-h-11 rounded-xl border border-sky-100 bg-white/80 px-4 text-sm font-medium text-slate-700 transition-colors hover:bg-sky-50"
+              type="button"
+              onClick={closeCourseForm}
+            >
+              Cancel
+            </button>
+            <button
+              className="min-h-11 rounded-xl bg-cyan-700 px-4 text-sm font-semibold text-white transition-colors hover:bg-cyan-800"
+              type="submit"
+              form="course-form"
+            >
+              {editingCourse ? 'Save changes' : 'Create course'}
+            </button>
+          </>
+        }
+      >
+        <form className="space-y-4" id="course-form" onSubmit={handleCourseSave} noValidate>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700" htmlFor="course-name">
+              Course name <span aria-hidden="true">*</span>
+            </label>
+            <input
+              className="min-h-11 w-full rounded-xl border border-sky-100 bg-white/80 px-3.5 text-sm text-slate-900 focus:border-cyan-400 focus:outline-none focus:ring-4 focus:ring-cyan-100"
+              id="course-name"
+              value={courseForm.name}
+              onChange={(event) => setCourseForm((current) => ({ ...current, name: event.target.value }))}
+              required
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700" htmlFor="course-code">
+              Course code <span aria-hidden="true">*</span>
+            </label>
+            <input
+              className="min-h-11 w-full rounded-xl border border-sky-100 bg-white/80 px-3.5 text-sm uppercase text-slate-900 focus:border-cyan-400 focus:outline-none focus:ring-4 focus:ring-cyan-100"
+              id="course-code"
+              value={courseForm.code}
+              onChange={(event) => setCourseForm((current) => ({ ...current, code: event.target.value }))}
+              placeholder="e.g. CS-201"
+              maxLength={12}
+              required
+            />
+            <p className="mt-1 text-xs text-slate-500">2–12 letters, numbers, or hyphens.</p>
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700" htmlFor="course-description">
+              Description
+            </label>
+            <textarea
+              className="min-h-24 w-full resize-y rounded-xl border border-sky-100 bg-white/80 px-3.5 py-2.5 text-sm text-slate-900 focus:border-cyan-400 focus:outline-none focus:ring-4 focus:ring-cyan-100"
+              id="course-description"
+              value={courseForm.description}
+              onChange={(event) => setCourseForm((current) => ({ ...current, description: event.target.value }))}
+            />
+          </div>
+          {courseFormError && (
+            <p className="rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-3 text-sm text-rose-800" role="alert">
+              {courseFormError}
+            </p>
+          )}
+        </form>
+      </AssignmentModal>
 
       <AssignmentModal
         open={isFormOpen}
@@ -502,6 +753,22 @@ function AdminDashboard({ theme, onToggleTheme }) {
         }
       >
         <form className="space-y-4" id="assignment-form" onSubmit={handleSave} noValidate>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700" htmlFor="assignment-course">
+              Course <span aria-hidden="true">*</span>
+            </label>
+            <select
+              className="min-h-11 w-full rounded-xl border border-sky-100 bg-white/80 px-3.5 text-sm text-slate-900 focus:border-cyan-400 focus:outline-none focus:ring-4 focus:ring-cyan-100"
+              id="assignment-course"
+              value={form.courseId}
+              onChange={(event) => setForm((current) => ({ ...current, courseId: event.target.value }))}
+              required
+            >
+              {professorCourses.map((course) => (
+                <option value={course.id} key={course.id}>{course.code} · {course.name}</option>
+              ))}
+            </select>
+          </div>
           <div>
             <label className="mb-1.5 block text-sm font-medium text-slate-700" htmlFor="assignment-title">
               Assignment title <span aria-hidden="true">*</span>
@@ -568,7 +835,7 @@ function AdminDashboard({ theme, onToggleTheme }) {
                 checked={form.assignedStudentIds.length === students.length}
                 onChange={(event) => toggleAllStudents(event.target.checked)}
               />
-              Assign to all five students
+              Assign to all {students.length} students
             </label>
             <div className="mt-1 grid grid-cols-1 gap-1 sm:grid-cols-2">
               {students.map((student) => (
@@ -610,6 +877,23 @@ function AdminDashboard({ theme, onToggleTheme }) {
         onCancel={() => {
           setDeleteTarget(null)
           setDeleteError('')
+        }}
+      />
+      <ConfirmDialog
+        open={Boolean(courseDeleteTarget)}
+        title="Delete course?"
+        description={
+          courseDeleteError ||
+          (courseDeleteTarget
+            ? `Delete ${courseDeleteTarget.name}? Existing assignments will be moved to General course and their student progress will be kept.`
+            : '')
+        }
+        confirmLabel="Delete course"
+        cancelLabel="Keep course"
+        onConfirm={confirmDeleteCourse}
+        onCancel={() => {
+          setCourseDeleteTarget(null)
+          setCourseDeleteError('')
         }}
       />
     </div>

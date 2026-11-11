@@ -1,9 +1,84 @@
 import { seedAssignments, demoUsers } from '../data/seedData.js'
+import { GENERAL_COURSE, GENERAL_COURSE_ID, isValidCourse } from './courseRules.js'
 
 export const SESSION_KEY = 'student-assignment-board-demo-user'
 export const REGISTERED_USERS_KEY = 'student-assignment-board-registered-users-v1'
 export const ASSIGNMENTS_STORAGE_KEY = 'student-assignment-board-assignments-v1'
 export const SUBMISSION_STORAGE_KEY = 'student-assignment-board-submissions-v1'
+export const COURSES_STORAGE_KEY = 'student-assignment-board-courses-v1'
+
+function getStoredCourses() {
+  try {
+    const stored = window.localStorage.getItem(COURSES_STORAGE_KEY)
+    if (!stored) return { courses: [GENERAL_COURSE], error: '' }
+
+    const parsed = JSON.parse(stored)
+    if (!Array.isArray(parsed)) throw new TypeError('Stored course data must be an array.')
+    const coursesById = new Map([[GENERAL_COURSE_ID, GENERAL_COURSE]])
+    parsed.forEach((course) => {
+      if (!isValidCourse(course) || course.id === GENERAL_COURSE_ID || coursesById.has(course.id)) return
+      const duplicate = [...coursesById.values()].some((existing) =>
+        existing.name.toLowerCase() === course.name.toLowerCase() ||
+        existing.code.toLowerCase() === course.code.toLowerCase(),
+      )
+      if (!duplicate) {
+        coursesById.set(course.id, course)
+      }
+    })
+    return { courses: [...coursesById.values()], error: '' }
+  } catch (error) {
+    console.error('Unable to restore courses from local storage.', error)
+    return {
+      courses: [GENERAL_COURSE],
+      error: 'Saved courses could not be loaded. Existing assignments are shown in the General course.',
+    }
+  }
+}
+
+export function persistCourses(courses) {
+  try {
+    window.localStorage.setItem(COURSES_STORAGE_KEY, JSON.stringify(courses))
+    return { success: true }
+  } catch (error) {
+    console.error('Unable to save courses to local storage.', error)
+    return { success: false, error: 'Course changes could not be saved. Check browser storage and try again.' }
+  }
+}
+
+export function persistCourseAndAssignmentChanges(courses, nextState) {
+  let oldCourses
+  let oldAssignments
+  try {
+    oldCourses = window.localStorage.getItem(COURSES_STORAGE_KEY)
+    oldAssignments = window.localStorage.getItem(ASSIGNMENTS_STORAGE_KEY)
+  } catch (error) {
+    console.error('Unable to access course storage before saving changes.', error)
+    return { success: false, error: 'Browser storage is unavailable. Check your storage settings and try again.' }
+  }
+
+  try {
+    window.localStorage.setItem(COURSES_STORAGE_KEY, JSON.stringify(courses))
+    window.localStorage.setItem(
+      ASSIGNMENTS_STORAGE_KEY,
+      JSON.stringify({
+        assignments: nextState.assignments,
+        deletedIds: nextState.deletedIds,
+      }),
+    )
+    return { success: true }
+  } catch (error) {
+    console.error('Unable to save course and assignment changes.', error)
+    try {
+      if (oldCourses === null) window.localStorage.removeItem(COURSES_STORAGE_KEY)
+      else window.localStorage.setItem(COURSES_STORAGE_KEY, oldCourses)
+      if (oldAssignments === null) window.localStorage.removeItem(ASSIGNMENTS_STORAGE_KEY)
+      else window.localStorage.setItem(ASSIGNMENTS_STORAGE_KEY, oldAssignments)
+    } catch (rollbackError) {
+      console.error('Unable to restore course and assignment storage after a failed save.', rollbackError)
+    }
+    return { success: false, error: 'Course changes could not be saved. Check browser storage and try again.' }
+  }
+}
 
 function isValidRegisteredUser(user) {
   return Boolean(
@@ -69,7 +144,7 @@ function getCanonicalAssignmentId(assignmentId) {
   return LEGACY_SEEDED_ASSIGNMENT_IDS[assignmentId] ?? assignmentId
 }
 
-function isValidAssignment(assignment) {
+function isValidAssignment(assignment, courseIds) {
   return Boolean(
     assignment &&
       typeof assignment.id === 'string' &&
@@ -78,9 +153,11 @@ function isValidAssignment(assignment) {
       typeof assignment.dueDate === 'string' &&
       typeof assignment.driveLink === 'string' &&
       typeof assignment.creatorId === 'string' &&
+      typeof assignment.courseId === 'string' &&
+      courseIds.has(assignment.courseId) &&
       Array.isArray(assignment.assignedStudentIds) &&
       assignment.assignedStudentIds.every((studentId) =>
-        demoUsers.some((user) => user.id === studentId && user.role === 'student'),
+        getAllUsers().some((user) => user.id === studentId && user.role === 'student'),
       ) &&
       assignment.submissions &&
       typeof assignment.submissions === 'object',
@@ -138,10 +215,20 @@ export function clearSession() {
   }
 }
 
-function getStoredAssignments() {
+function getStoredAssignments(courses) {
   try {
+    const courseIds = new Set(courses.map((course) => course.id))
     const stored = window.localStorage.getItem(ASSIGNMENTS_STORAGE_KEY)
-    if (!stored) return { assignments: seedAssignments, deletedIds: [], error: '' }
+    if (!stored) {
+      return {
+        assignments: seedAssignments.map((assignment) => ({
+          ...assignment,
+          courseId: GENERAL_COURSE_ID,
+        })),
+        deletedIds: [],
+        error: '',
+      }
+    }
 
     const parsed = JSON.parse(stored)
     if (!parsed || !Array.isArray(parsed.assignments) || !Array.isArray(parsed.deletedIds)) {
@@ -150,27 +237,39 @@ function getStoredAssignments() {
 
     const seedAssignmentsById = new Map(seedAssignments.map((assignment) => [assignment.id, assignment]))
     let didMigrate = false
-    const assignmentsById = new Map(seedAssignments.map((assignment) => [assignment.id, assignment]))
+    const assignmentsById = new Map(seedAssignments.map((assignment) => [
+      assignment.id,
+      { ...assignment, courseId: GENERAL_COURSE_ID },
+    ]))
     const storedAssignmentsById = new Map()
     const invalidStoredAssignments = []
     parsed.assignments.forEach((assignment) => {
-      if (!isValidAssignment(assignment)) {
+      if (!assignment || typeof assignment !== 'object') {
         invalidStoredAssignments.push(assignment)
         return
       }
 
       const originalId = assignment.id
       const canonicalId = getCanonicalAssignmentId(originalId)
+      const normalizedCourseId = courseIds.has(assignment.courseId)
+        ? assignment.courseId
+        : GENERAL_COURSE_ID
+      const assignmentWithCourse = { ...assignment, courseId: normalizedCourseId }
+      if (normalizedCourseId !== assignment.courseId) didMigrate = true
+      if (!isValidAssignment(assignmentWithCourse, courseIds)) {
+        invalidStoredAssignments.push(assignment)
+        return
+      }
       const seedAssignment = seedAssignmentsById.get(canonicalId)
       const normalizedAssignment = seedAssignment
         ? {
-            ...assignment,
+            ...assignmentWithCourse,
             id: canonicalId,
             title: seedAssignment.title,
             description: seedAssignment.description,
             driveLink: seedAssignment.driveLink,
           }
-        : assignment
+        : assignmentWithCourse
       const previousStoredAssignment = storedAssignmentsById.get(canonicalId)
 
       if (
@@ -220,7 +319,10 @@ function getStoredAssignments() {
   } catch (error) {
     console.error('Unable to restore assignments from local storage.', error)
     return {
-      assignments: seedAssignments,
+      assignments: seedAssignments.map((assignment) => ({
+        ...assignment,
+        courseId: GENERAL_COURSE_ID,
+      })),
       deletedIds: [],
       error: 'Saved assignments could not be loaded. Seed data is shown instead.',
     }
@@ -275,13 +377,15 @@ function getStoredUpdates(assignments) {
 }
 
 export function getInitialAssignmentState() {
-  const { assignments, deletedIds, error: assignmentError } = getStoredAssignments()
+  const { courses, error: courseError } = getStoredCourses()
+  const { assignments, deletedIds, error: assignmentError } = getStoredAssignments(courses)
   const { updates, error: submissionError } = getStoredUpdates(assignments)
   return {
+    courses,
     assignments,
     deletedIds,
     updates,
-    storageError: [assignmentError, submissionError].filter(Boolean).join(' '),
+    storageError: [courseError, assignmentError, submissionError].filter(Boolean).join(' '),
   }
 }
 

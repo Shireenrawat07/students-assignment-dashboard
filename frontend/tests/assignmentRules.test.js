@@ -11,6 +11,8 @@ import {
   matchesAdminAssignmentFilter,
 } from '../src/utils/assignmentRules.js'
 import { demoUsers, seedAssignments } from '../src/data/seedData.js'
+import { GENERAL_COURSE, createCourseRecord, deleteCourseRecord, updateCourseRecord } from '../src/utils/courseRules.js'
+import { deleteAssignmentRecord, updateAssignmentRecord } from '../src/utils/assignmentRules.js'
 
 const admin = demoUsers.find((user) => user.id === 'admin-sharma')
 const student = demoUsers.find((user) => user.id === 'student-aarav')
@@ -19,6 +21,7 @@ const assignmentDetails = {
   description: 'A focused rules test.',
   dueDate: '2026-12-01',
   driveLink: 'https://drive.google.com/file/d/example',
+  courseId: GENERAL_COURSE.id,
   assignedStudentIds: [student.id, student.id],
 }
 
@@ -29,6 +32,126 @@ test('admin can create an assignment for selected students', () => {
   assert.equal(result.assignment.creatorId, admin.id)
   assert.equal(result.assignment.assignedStudentIds.length, 1)
   assert.equal(result.assignment.submissions[student.id], 'pending')
+})
+
+test('assignment creation validates and stores its selected course', () => {
+  const course = createCourseRecord(
+    { name: 'Algorithms', code: 'CS-301', description: 'Design and analysis.' },
+    admin,
+    [GENERAL_COURSE],
+  ).course
+  const result = createAssignmentRecord(
+    { ...assignmentDetails, courseId: course.id },
+    admin,
+    [GENERAL_COURSE, course],
+  )
+
+  assert.equal(result.success, true)
+  assert.equal(result.assignment.courseId, course.id)
+  assert.equal(
+    createAssignmentRecord({ ...assignmentDetails, courseId: 'missing-course' }, admin, [GENERAL_COURSE]).success,
+    false,
+  )
+})
+
+test('assignment editing can change courses while preserving existing student submissions', () => {
+  const course = createCourseRecord(
+    { name: 'Algorithms', code: 'CS-301', description: '' },
+    admin,
+    [GENERAL_COURSE],
+  ).course
+  const existing = {
+    ...seedAssignments[0],
+    assignedStudentIds: [student.id],
+    submissions: { [student.id]: 'pending' },
+  }
+  const updates = { [existing.id]: { [student.id]: 'submitted' } }
+  const result = updateAssignmentRecord(
+    [existing],
+    updates,
+    existing.id,
+    { ...assignmentDetails, courseId: course.id, assignedStudentIds: [student.id] },
+    admin,
+    [GENERAL_COURSE, course],
+  )
+
+  assert.equal(result.success, true)
+  assert.equal(result.assignment.courseId, course.id)
+  assert.equal(result.assignment.submissions[student.id], 'submitted')
+  assert.deepEqual(result.updates, {})
+})
+
+test('assignment deletion removes only the selected professor assignment and its updates', () => {
+  const owned = { ...seedAssignments[0], assignedStudentIds: [student.id], submissions: { [student.id]: 'pending' } }
+  const otherOwned = { ...seedAssignments[1] }
+  const updates = { [owned.id]: { [student.id]: 'submitted' } }
+  const result = deleteAssignmentRecord([owned, otherOwned], updates, [], owned.id, admin)
+
+  assert.equal(result.success, true)
+  assert.deepEqual(result.assignments, [otherOwned])
+  assert.deepEqual(result.updates, {})
+  assert.deepEqual(result.deletedIds, [owned.id])
+})
+
+test('course creation and editing validate unique names and codes', () => {
+  const created = createCourseRecord(
+    { name: '  Algorithms ', code: ' cs-301 ', description: 'Design.' },
+    admin,
+    [GENERAL_COURSE],
+  )
+  assert.equal(created.success, true)
+  assert.equal(created.course.name, 'Algorithms')
+  assert.equal(created.course.code, 'CS-301')
+  assert.equal(
+    createCourseRecord({ name: 'Other', code: 'GEN', description: '' }, admin, [GENERAL_COURSE]).success,
+    false,
+  )
+  assert.equal(
+    createCourseRecord({ name: '', code: 'CS-302', description: '' }, admin, [GENERAL_COURSE]).success,
+    false,
+  )
+  assert.equal(
+    createCourseRecord({ name: 'Invalid code', code: 'X', description: '' }, admin, [GENERAL_COURSE]).success,
+    false,
+  )
+  const updated = updateCourseRecord(
+    created.course.id,
+    { name: 'Advanced Algorithms', code: 'CS-302', description: 'Updated.' },
+    admin,
+    [GENERAL_COURSE, created.course],
+  )
+  assert.equal(updated.success, true)
+  assert.equal(updated.courses.find((course) => course.id === created.course.id).name, 'Advanced Algorithms')
+})
+
+test('deleting a course moves its assignments to General and preserves submission data', () => {
+  const created = createCourseRecord(
+    { name: 'Algorithms', code: 'CS-301', description: '' },
+    admin,
+    [GENERAL_COURSE],
+  )
+  const assignment = {
+    ...seedAssignments[0],
+    courseId: created.course.id,
+    submissions: { [student.id]: 'submitted' },
+    assignedStudentIds: [student.id],
+  }
+  const result = deleteCourseRecord(
+    created.course.id,
+    admin,
+    [GENERAL_COURSE, created.course],
+    [assignment],
+  )
+
+  assert.equal(result.success, true)
+  assert.equal(result.reassignedCount, 1)
+  assert.equal(result.courses.some((course) => course.id === created.course.id), false)
+  assert.equal(result.assignments[0].courseId, GENERAL_COURSE.id)
+  assert.deepEqual(result.assignments[0].submissions, assignment.submissions)
+  assert.equal(
+    deleteCourseRecord(GENERAL_COURSE.id, admin, [GENERAL_COURSE], []).success,
+    false,
+  )
 })
 
 test('students cannot create assignments and invalid assignees are rejected', () => {

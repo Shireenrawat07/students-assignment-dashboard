@@ -1,4 +1,5 @@
 import { demoUsers } from '../data/seedData.js'
+import { GENERAL_COURSE, isCourseAvailableToProfessor } from './courseRules.js'
 
 export function authenticateUser(email, password, users = demoUsers) {
   return (
@@ -107,16 +108,24 @@ export function canManageAssignment(assignment, currentUser) {
   return currentUser?.role === 'admin' && assignment?.creatorId === currentUser.id
 }
 
-export function createAssignmentRecord(details, currentUser) {
+export function createAssignmentRecord(
+  details,
+  currentUser,
+  courses = [GENERAL_COURSE],
+  users = demoUsers,
+) {
   if (currentUser?.role !== 'admin') {
     return { success: false, error: 'Only admins can create assignments.' }
+  }
+  if (!isCourseAvailableToProfessor(details.courseId, courses, currentUser)) {
+    return { success: false, error: 'Choose one of your available courses.' }
   }
 
   const studentIds = [...new Set(details.assignedStudentIds)]
   if (!studentIds.length) {
     return { success: false, error: 'Select at least one student.' }
   }
-  if (studentIds.some((id) => !demoUsers.some((user) => user.id === id && user.role === 'student'))) {
+  if (studentIds.some((id) => !users.some((user) => user.id === id && user.role === 'student'))) {
     return { success: false, error: 'The student selection is invalid.' }
   }
 
@@ -129,6 +138,70 @@ export function createAssignmentRecord(details, currentUser) {
       assignedStudentIds: studentIds,
       submissions: Object.fromEntries(studentIds.map((id) => [id, 'pending'])),
     },
+  }
+}
+
+export function updateAssignmentRecord(
+  assignments,
+  updates,
+  assignmentId,
+  details,
+  currentUser,
+  courses,
+  users = demoUsers,
+) {
+  if (currentUser?.role !== 'admin') {
+    return { success: false, error: 'Only admins can edit assignments.' }
+  }
+  const existing = assignments.find((assignment) => assignment.id === assignmentId)
+  if (!canManageAssignment(existing, currentUser)) {
+    return { success: false, error: 'You can only edit assignments you created.' }
+  }
+  if (!isCourseAvailableToProfessor(details.courseId, courses, currentUser)) {
+    return { success: false, error: 'Choose one of your available courses.' }
+  }
+
+  const studentIds = [...new Set(details.assignedStudentIds)]
+  if (!studentIds.length) return { success: false, error: 'Select at least one student.' }
+  if (studentIds.some((id) => !users.some((user) => user.id === id && user.role === 'student'))) {
+    return { success: false, error: 'The student selection is invalid.' }
+  }
+
+  const submissions = Object.fromEntries(
+    studentIds.map((studentId) => [
+      studentId,
+      existing.assignedStudentIds.includes(studentId)
+        ? updates[assignmentId]?.[studentId] ?? existing.submissions[studentId] ?? 'pending'
+        : 'pending',
+    ]),
+  )
+  const assignment = { ...existing, ...details, assignedStudentIds: studentIds, submissions }
+  const nextUpdates = { ...updates }
+  delete nextUpdates[assignmentId]
+  return {
+    success: true,
+    assignment,
+    assignments: assignments.map((item) => item.id === assignmentId ? assignment : item),
+    updates: nextUpdates,
+  }
+}
+
+export function deleteAssignmentRecord(assignments, updates, deletedIds, assignmentId, currentUser) {
+  if (currentUser?.role !== 'admin') {
+    return { success: false, error: 'Only admins can delete assignments.' }
+  }
+  const existing = assignments.find((assignment) => assignment.id === assignmentId)
+  if (!canManageAssignment(existing, currentUser)) {
+    return { success: false, error: 'You can only delete assignments you created.' }
+  }
+
+  const nextUpdates = { ...updates }
+  delete nextUpdates[assignmentId]
+  return {
+    success: true,
+    assignments: assignments.filter((assignment) => assignment.id !== assignmentId),
+    deletedIds: [...new Set([...deletedIds, assignmentId])],
+    updates: nextUpdates,
   }
 }
 

@@ -38,7 +38,7 @@ The Student Assignment & Review Dashboard is a frontend application for managing
 
 ```sh
 git clone https://github.com/Shireenrawat07/student-assignment-board.git
-cd student-assignment-board
+cd student-assignment-board/frontend
 npm install
 npm run dev
 ```
@@ -66,71 +66,60 @@ Tests use Node.js's built-in test runner (`node --test`), and the production bui
 
 ```text
 student-assignment-board/
-├── src/
-│   ├── components/
-│   │   ├── AssignmentCard.jsx
-│   │   ├── AssignmentModal.jsx
-│   │   ├── ConfirmDialog.jsx
-│   │   ├── EmptyState.jsx
-│   │   ├── FilterBar.jsx
-│   │   ├── Navbar.jsx
-│   │   ├── ProgressBar.jsx
-│   │   ├── SearchBar.jsx
-│   │   └── StatCard.jsx
-│   ├── context/
-│   │   └── AppContext.jsx
-│   ├── data/
-│   │   └── seedData.js
-│   ├── pages/
-│   │   ├── AdminDashboard.jsx
-│   │   ├── Login.jsx
-│   │   └── StudentDashboard.jsx
-│   ├── utils/
-│   │   ├── assignmentRules.js
-│   │   └── storage.js
-│   ├── App.jsx
-│   ├── index.css
-│   └── main.jsx
-├── tests/
-│   ├── assignmentRules.test.js
-│   └── authService.test.js
-├── index.html
-├── package.json
-├── package-lock.json
-└── vite.config.js
+├── frontend/
+│   ├── public/favicon.svg
+│   ├── src/
+│   │   ├── components/
+│   │   ├── context/AppContext.jsx
+│   │   ├── data/seedData.js
+│   │   ├── pages/
+│   │   ├── utils/
+│   │   ├── App.jsx
+│   │   ├── index.css
+│   │   └── main.jsx
+│   ├── tests/
+│   ├── .oxlintrc.json
+│   ├── index.html
+│   ├── package.json
+│   ├── package-lock.json
+│   └── vite.config.js
+├── .gitignore
+├── README.md
+└── vercel.json
 ```
 
-- `src/components/` contains reusable interface elements shared across pages, such as assignment cards, dialogs, filters, progress bars, and navigation.
-- `src/context/AppContext.jsx` owns shared user and assignment state and its actions.
-- `src/data/seedData.js` defines demo users, initial assignments, and the role-based dashboard path helper.
-- `src/pages/` contains the login page and the separate admin and student dashboards.
-- `src/utils/storage.js` restores and saves the mock session, assignments, and submission updates in `localStorage`. It validates stored data, migrates legacy seeded assignment IDs, and reports storage errors. When assignment data and submission updates are saved together, it attempts to restore their previous values if either write fails.
-- `src/utils/assignmentRules.js` contains login, role, assignment ownership, student visibility, creation authorization, and submission validation rules.
-- `src/App.jsx` defines routes, redirects users according to their role, and manages the shared theme preference.
-- `src/main.jsx` mounts the router, `AppProvider`, and application.
-- `src/index.css` defines the light and dark themes, glassmorphism styling, and reduced-motion behavior.
-- `tests/` contains tests for the demo login and role checks, assignment access and creation, and student submission rules.
-- `package.json` defines scripts and dependencies; `vite.config.js` configures the React and Tailwind CSS Vite plugins.
+- `frontend/src/components/` contains reusable interface elements shared across pages, such as assignment cards, dialogs, filters, progress bars, and navigation.
+- `frontend/src/context/AppContext.jsx` owns shared user and assignment state and its actions.
+- `frontend/src/data/seedData.js` defines demo users, initial assignments, and the role-based dashboard path helper.
+- `frontend/src/pages/` contains the login page and the separate admin and student dashboards.
+- `frontend/src/utils/storage.js` restores and saves the mock session, assignments, and submission updates in `localStorage`. It validates stored data, migrates legacy seeded assignment IDs, and reports storage errors. When assignment data and submission updates are saved together, it attempts to restore their previous values if either write fails.
+- `frontend/src/utils/assignmentRules.js` contains login, role, assignment ownership, student visibility, creation authorization, and submission validation rules.
+- `frontend/src/App.jsx` defines routes, redirects users according to their role, and manages the shared theme preference.
+- `frontend/src/main.jsx` mounts the router, `AppProvider`, and application.
+- `frontend/src/index.css` defines the light and dark themes, glassmorphism styling, and reduced-motion behavior.
+- `frontend/tests/` contains tests for the demo login and role checks, assignment access and creation, and student submission rules.
+- `frontend/package.json` defines scripts and dependencies; `frontend/vite.config.js` configures the React and Tailwind CSS Vite plugins.
+- The root `vercel.json` builds and serves the app from `frontend/`.
 
 ## Component Architecture and Data Flow
 
 The application separates shared UI, page-level workflows, shared state, and data rules:
 
-1. `main.jsx` mounts `App` inside `BrowserRouter` and the single `AppProvider`.
+1. `frontend/src/main.jsx` mounts `App` inside `BrowserRouter` and the single `AppProvider`.
 2. `AppProvider` initializes the current demo user and assignment data using `storage.js`. It exposes state and actions through the `useApp()` hook defined in the same `AppContext.jsx` file.
 3. `App.jsx` reads the current user through `useApp()`, then renders the login page or the dashboard that matches the user's role. It owns theme state and passes the selected theme and toggle callback to the pages.
 4. `Login.jsx`, `AdminDashboard.jsx`, and `StudentDashboard.jsx` use `useApp()` to read or update shared state. The dashboards apply search, filters, sorting, and presentation-specific progress calculations to that data.
 5. `assignmentRules.js` checks login, role permissions, assignment ownership and student visibility, and validates assignees and student submissions. `AdminDashboard.jsx` also validates assignment form fields, due dates, and Google Drive/Docs URLs; `AppContext.jsx` calls the rules before applying changes.
 6. Successful changes are written through `storage.js` to `localStorage`; React context updates then cause the relevant UI to render the new state.
 
-Reusable components in `components/` keep common interface patterns consistent between the two dashboards. Page components compose these shared elements while keeping each role's workflow separate.
+Reusable components in `frontend/src/components/` keep common interface patterns consistent between the two dashboards. Page components compose these shared elements while keeping each role's workflow separate.
 
 ## Key Design Decisions
 
 - **React Context for shared state:** A single `AppProvider` makes the current user, assignments, and actions available to login and dashboard pages without passing them through many intermediate components.
 - **Local storage instead of a backend:** The project is a frontend-only demonstration. `localStorage` retains the mock session, assignment changes, submission updates, and theme preference across browser refreshes; it is not a server-side data store.
 - **Mock authentication:** Login checks the credentials against local demo users. It demonstrates role-specific flows but does not provide real authentication or account security.
-- **Role-based access and ownership:** `App.jsx` routes admins and students to their corresponding dashboards. Assignment rules limit admins to assignments they created and students to assignments assigned to them; submission actions also validate the student's identity and assignment eligibility.
+- **Role-based access and ownership:** `frontend/src/App.jsx` routes admins and students to their corresponding dashboards. Assignment rules limit admins to assignments they created and students to assignments assigned to them; submission actions also validate the student's identity and assignment eligibility.
 - **Reusable components and responsive layouts:** Shared cards, controls, dialogs, navigation, and progress components reduce repeated UI. Responsive Tailwind CSS classes adapt the layout to available screen sizes.
 - **Validation and persistence safety:** Assignment forms validate required fields, due dates, student selection, and HTTPS Google Drive/Docs URLs. Assignment rules check who may create or submit assignments and which students can be assigned. Storage helpers validate and migrate restored data, report storage errors, and attempt to restore previous assignment and submission values if a multi-key save fails.
 - **Visual and motion preferences:** The interface uses a light glassmorphism style with cyan accents, includes a persistent dark theme, and respects reduced-motion preferences.

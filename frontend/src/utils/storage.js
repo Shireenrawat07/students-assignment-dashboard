@@ -1,8 +1,61 @@
 import { seedAssignments, demoUsers } from '../data/seedData.js'
 
 export const SESSION_KEY = 'student-assignment-board-demo-user'
+export const REGISTERED_USERS_KEY = 'student-assignment-board-registered-users-v1'
 export const ASSIGNMENTS_STORAGE_KEY = 'student-assignment-board-assignments-v1'
 export const SUBMISSION_STORAGE_KEY = 'student-assignment-board-submissions-v1'
+
+function isValidRegisteredUser(user) {
+  return Boolean(
+    user &&
+      typeof user.id === 'string' &&
+      typeof user.name === 'string' &&
+      typeof user.email === 'string' &&
+      typeof user.password === 'string' &&
+      ['admin', 'student'].includes(user.role),
+  )
+}
+
+export function getRegisteredUsers() {
+  try {
+    const stored = window.localStorage.getItem(REGISTERED_USERS_KEY)
+    if (!stored) return []
+    const users = JSON.parse(stored)
+    return Array.isArray(users) ? users.filter(isValidRegisteredUser) : []
+  } catch (error) {
+    console.error('Unable to restore registered demo accounts from local storage.', error)
+    return []
+  }
+}
+
+export function getAllUsers() {
+  return [...demoUsers, ...getRegisteredUsers()]
+}
+
+export function saveRegisteredUser(user) {
+  if (!isValidRegisteredUser(user)) {
+    return { success: false, error: 'The account details are invalid.' }
+  }
+
+  try {
+    const stored = window.localStorage.getItem(REGISTERED_USERS_KEY)
+    const users = stored ? JSON.parse(stored) : []
+    if (!Array.isArray(users) || users.some((candidate) => !isValidRegisteredUser(candidate))) {
+      return { success: false, error: 'Saved account data is invalid and was not changed.' }
+    }
+    if ([...demoUsers, ...users].some((candidate) => candidate.email.toLowerCase() === user.email)) {
+      return { success: false, error: 'An account with this email already exists.' }
+    }
+    window.localStorage.setItem(REGISTERED_USERS_KEY, JSON.stringify([...users, user]))
+    return { success: true }
+  } catch (error) {
+    console.error('Unable to save the registered demo account to local storage.', error)
+    return {
+      success: false,
+      error: 'Your account could not be saved in this browser. Check your storage settings and try again.',
+    }
+  }
+}
 
 const LEGACY_SEEDED_ASSIGNMENT_IDS = {
   'assignment-data-structures': 'react-fundamentals',
@@ -57,7 +110,7 @@ function mergeDuplicateAssignments(existing, incoming) {
 export function getStoredUser() {
   try {
     const email = window.localStorage.getItem(SESSION_KEY)
-    return demoUsers.find((user) => user.email === email) || null
+    return getAllUsers().find((user) => user.email === email) || null
   } catch (error) {
     console.error('Unable to restore the demo session from local storage.', error)
     return null

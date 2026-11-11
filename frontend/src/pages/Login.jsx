@@ -8,16 +8,37 @@ import { ThemeToggle } from '../components/Navbar.jsx'
 function Login({ theme, onToggleTheme }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [name, setName] = useState('')
+  const [role, setRole] = useState('student')
+  const [isRegistering, setIsRegistering] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
+  const [successMessage, setSuccessMessage] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const { login } = useApp()
+  const { login, register } = useApp()
   const navigate = useNavigate()
 
   function handleSubmit(event) {
     event.preventDefault()
     setErrorMessage('')
+    setSuccessMessage('')
     setIsSubmitting(true)
+
+    if (isRegistering) {
+      const result = register({ name, email, password, role })
+      if (!result.success) {
+        setErrorMessage(result.error)
+        setIsSubmitting(false)
+        return
+      }
+
+      setEmail(result.user.email)
+      setPassword('')
+      setIsRegistering(false)
+      setSuccessMessage('Account created. Sign in with your new account.')
+      setIsSubmitting(false)
+      return
+    }
 
     const result = login(email, password)
     if (!result.success) {
@@ -44,11 +65,15 @@ function Login({ theme, onToggleTheme }) {
           <p className="text-xs font-semibold tracking-[0.2em] text-cyan-800 uppercase">
             Student Assignment &amp; Review Dashboard
           </p>
-          <h1 className="mt-2 text-2xl font-semibold text-slate-900">Welcome back</h1>
-          <p className="mt-2 text-sm text-slate-600">Sign in to your assignment workspace.</p>
+          <h1 className="mt-2 text-2xl font-semibold text-slate-900">
+            {isRegistering ? 'Create your account' : 'Welcome back'}
+          </h1>
+          <p className="mt-2 text-sm text-slate-600">
+            {isRegistering ? 'Register as a student or professor.' : 'Sign in to your assignment workspace.'}
+          </p>
         </div>
 
-        <div className="login-notice mb-6 flex gap-3 rounded-xl p-3.5 text-sm" role="note">
+        {!isRegistering && <div className="login-notice mb-6 flex gap-3 rounded-xl p-3.5 text-sm" role="note">
           <ShieldCheck className="login-notice-icon mt-0.5 shrink-0" aria-hidden="true" size={18} />
           <div>
             <p className="login-notice-title m-0 font-semibold">Demo environment</p>
@@ -56,9 +81,39 @@ function Login({ theme, onToggleTheme }) {
               Use the demo accounts provided below. No real authentication is required.
             </p>
           </div>
-        </div>
+        </div>}
 
         <form className="space-y-4" onSubmit={handleSubmit}>
+          {isRegistering && <div>
+            <label className="login-label mb-1.5 block text-sm font-medium text-slate-700" htmlFor="register-name">
+              Full name
+            </label>
+            <input
+              className="login-input min-h-12 w-full rounded-xl border border-sky-100 bg-white/80 px-4 text-sm text-slate-900 shadow-sm"
+              id="register-name"
+              name="name"
+              type="text"
+              autoComplete="name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              required
+            />
+          </div>}
+          {isRegistering && <div>
+            <label className="login-label mb-1.5 block text-sm font-medium text-slate-700" htmlFor="register-role">
+              Account type
+            </label>
+            <select
+              className="login-input min-h-12 w-full rounded-xl border border-sky-100 bg-white/80 px-4 text-sm text-slate-900 shadow-sm"
+              id="register-role"
+              name="role"
+              value={role}
+              onChange={(event) => setRole(event.target.value)}
+            >
+              <option value="student">Student</option>
+              <option value="admin">Professor</option>
+            </select>
+          </div>}
           <div>
             <label className="login-label mb-1.5 block text-sm font-medium text-slate-700" htmlFor="login-email">
               Email address
@@ -90,6 +145,7 @@ function Login({ theme, onToggleTheme }) {
                 placeholder="Enter your password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
+                minLength={isRegistering ? 8 : undefined}
                 required
               />
               <button
@@ -111,17 +167,37 @@ function Login({ theme, onToggleTheme }) {
               {errorMessage}
             </p>
           )}
+          {successMessage && (
+            <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-3 text-sm text-emerald-800" role="status">
+              {successMessage}
+            </p>
+          )}
 
           <button
             className="min-h-12 w-full rounded-xl bg-cyan-700 px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-cyan-800 disabled:cursor-wait disabled:opacity-70"
             type="submit"
             disabled={isSubmitting}
           >
-            {isSubmitting ? 'Signing in…' : 'Sign in'}
+            {isSubmitting ? 'Please wait…' : isRegistering ? 'Create account' : 'Sign in'}
           </button>
         </form>
 
-        <details className="group mt-6 rounded-xl border border-sky-100 bg-white/45">
+        <p className="mt-5 text-center text-sm text-slate-600">
+          {isRegistering ? 'Already have an account?' : 'New to the dashboard?'}{' '}
+          <button
+            className="font-semibold text-cyan-800 hover:text-cyan-950"
+            type="button"
+            onClick={() => {
+              setIsRegistering((current) => !current)
+              setErrorMessage('')
+              setSuccessMessage('')
+            }}
+          >
+            {isRegistering ? 'Sign in' : 'Create account'}
+          </button>
+        </p>
+
+        {!isRegistering && <details className="group mt-6 rounded-xl border border-sky-100 bg-white/45">
           <summary className="cursor-pointer rounded-xl px-4 py-3 text-sm font-medium text-slate-700 transition-colors hover:bg-white/70 focus-visible:outline-offset-2">
             View demo accounts
           </summary>
@@ -152,7 +228,7 @@ function Login({ theme, onToggleTheme }) {
               ))}
             </ul>
           </div>
-        </details>
+        </details>}
       </section>
     </main>
   )

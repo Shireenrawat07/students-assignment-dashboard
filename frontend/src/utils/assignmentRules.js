@@ -1,13 +1,49 @@
 import { demoUsers } from '../data/seedData.js'
 
-export function authenticateDemoUser(email, password) {
+export function authenticateUser(email, password, users = demoUsers) {
   return (
-    demoUsers.find(
+    users.find(
       (candidate) =>
         candidate.email.toLowerCase() === email.trim().toLowerCase() &&
         candidate.password === password,
     ) ?? null
   )
+}
+
+export function authenticateDemoUser(email, password) {
+  return authenticateUser(email, password, demoUsers)
+}
+
+export function createRegisteredAccount({ name, email, password, role }, existingUsers = demoUsers) {
+  const normalizedName = typeof name === 'string' ? name.trim() : ''
+  const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : ''
+
+  if (!normalizedName || !normalizedEmail || typeof password !== 'string') {
+    return { success: false, error: 'Enter your name, email address, and password.' }
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+    return { success: false, error: 'Enter a valid email address.' }
+  }
+  if (password.length < 8) {
+    return { success: false, error: 'Use a password with at least 8 characters.' }
+  }
+  if (!['admin', 'student'].includes(role)) {
+    return { success: false, error: 'Choose Student or Professor as your account type.' }
+  }
+  if (existingUsers.some((user) => user.email.toLowerCase() === normalizedEmail)) {
+    return { success: false, error: 'An account with this email already exists.' }
+  }
+
+  return {
+    success: true,
+    user: {
+      id: crypto.randomUUID(),
+      name: normalizedName,
+      email: normalizedEmail,
+      password,
+      role,
+    },
+  }
 }
 
 export function canAccessRole(user, allowedRole) {

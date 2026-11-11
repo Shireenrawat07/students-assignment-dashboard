@@ -3,15 +3,18 @@ import { demoUsers } from '../data/seedData.js'
 import {
   canManageAssignment,
   createAssignmentRecord,
+  createRegisteredAccount,
   createSubmissionUpdate,
-  authenticateDemoUser,
+  authenticateUser,
 } from '../utils/assignmentRules.js'
 import {
   clearSession,
+  getAllUsers,
   getInitialAssignmentState,
   getStoredUser,
   persistAssignmentChanges,
   saveSession,
+  saveRegisteredUser,
   saveSubmissionUpdates,
 } from '../utils/storage.js'
 
@@ -22,7 +25,7 @@ export function AppProvider({ children }) {
   const [state, setState] = useState(getInitialAssignmentState)
 
   const login = useCallback((email, password) => {
-    const user = authenticateDemoUser(email, password)
+    const user = authenticateUser(email, password, getAllUsers())
     if (!user) {
       return { success: false, error: 'The email or password is incorrect. Check the demo accounts and try again.' }
     }
@@ -32,6 +35,15 @@ export function AppProvider({ children }) {
 
     setCurrentUser(user)
     return { success: true, user }
+  }, [])
+
+  const register = useCallback((details) => {
+    const creation = createRegisteredAccount(details, getAllUsers())
+    if (!creation.success) return creation
+
+    const result = saveRegisteredUser(creation.user)
+    if (!result.success) return result
+    return { success: true, user: creation.user }
   }, [])
 
   const logout = useCallback(() => {
@@ -128,6 +140,7 @@ export function AppProvider({ children }) {
       currentUser,
       isAuthenticated: Boolean(currentUser),
       login,
+      register,
       logout,
       assignments: state.assignments,
       updates: state.updates,
@@ -137,7 +150,7 @@ export function AppProvider({ children }) {
       updateAssignment,
       deleteAssignment,
     }),
-    [currentUser, state, login, logout, markSubmitted, createAssignment, updateAssignment, deleteAssignment],
+    [currentUser, state, login, register, logout, markSubmitted, createAssignment, updateAssignment, deleteAssignment],
   )
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>
